@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TextInput,
   LogBox,
+  Alert,
 } from 'react-native';
 import Tts from 'react-native-tts';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -17,7 +18,31 @@ LogBox.ignoreLogs(['new NativeEventEmitter']); // Ignore log notification by mes
 Tts.setDefaultLanguage('en-GB');
 Sound.setCategory('Playback');
 
-let itemsRef = database().ref('/Scale/mean_weight');
+let mwRef = database().ref('/Scale/mean_weight');
+let wtRef = database().ref('/Scale/weight_test');
+let srRef = database().ref('/Scale/result');
+let coRef = database().ref('/Curtain/open');
+let ccRef = database().ref('/Curtain/command');
+
+const getValueFB = (ref, changeState, printSTR) => {
+  ref.on('value', snapshot => {
+    let data = snapshot.val();
+    changeState(data);
+    console.log(`${printSTR}: ${data}`);
+  });
+};
+
+const setCurtainFB = (item) => {
+  database().ref('/Curtain/').update({command: item});
+};
+
+const setScaleResultFB = (item) => {
+  database().ref('/Scale/').update({result: item});
+};
+
+const setWeightTestFB = (item) => {
+  database().ref('/Scale/').update({weight_test: item});
+};
 
 const audio_path =
   'https://raw.githubusercontent.com/victormacedo10/jarvisApp/master/alarm_sound.mp3';
@@ -40,25 +65,80 @@ function App() {
   const [todoText, onChangeText] = React.useState(
     'Good morning V,\n\nHere are your tasks for today\n\n',
   );
+  const [weightText, onChangeWeightText] = React.useState(
+    'Error',
+  );
   const [timeoutId, changeTimeoutId] = React.useState({});
   // const [sound, setSound] = React.useState();
   const [date, setDate] = React.useState(new Date(1598051730000));
   const [show, setShow] = React.useState(false);
   const [showAlarm, setShowAlarm] = React.useState('No alarm set yet');
   const [playing, setPlaying] = React.useState();
+  const [readOnce, setReadOnce] = React.useState(false);
+  const [curtainStatus, setCurtainStatus] = React.useState(0);
+  const [scaleResult, setScaleResult] = React.useState(0);
+  const [weightTest, setWeightTest] = React.useState(0);
+  const [meanWeight, setMeanWeight] = React.useState(73.2);
 
   React.useEffect(() => {
-    itemsRef.on('value', snapshot => {
+    let mounted = true;
+    console.log('Entered readOnce useEffect');
+    if(mounted){
+      if (readOnce) {
+        if (audio.isPlaying()) {
+          audio.pause();
+          setPlaying(false);
+        }
+        readTodoList();
+        setScaleResultFB(0);
+        setWeightTestFB(0);
+      }
+    }
+
+    return () => mounted = false;
+  }, [readOnce]);
+
+  React.useEffect(() => {
+    getValueFB(coRef, setCurtainStatus, "Curtain Status:");
+    getValueFB(wtRef, setWeightTest, "Weight Test:");
+    srRef.on('value', snapshot => {
       let data = snapshot.val();
-      const items = Object.values(data);
-      console.log("Printing Items:");
-      console.log(snapshot);
+      setScaleResult(data);
+      if (data == 1) {
+        if (!readOnce) {
+          setReadOnce(true);
+        }
+      } else {
+        setReadOnce(false);
+      }
+    });
+    mwRef.on('value', snapshot => {
+      let data = snapshot.val();
+      setMeanWeight(parseFloat(data).toFixed(2));
+      console.log(`Mean Weight: ${parseFloat(data).toFixed(2)}`);
+      onChangeWeightText(`Your weight is ${parseFloat(data).toFixed(2)} kilos\n\n`);
     });
     audio.setVolume(1);
     return () => {
       audio.release();
     };
   }, []);
+
+  const checkWeight =  () => {
+    setScaleResultFB(0);
+    setWeightTestFB(0);
+    console.log("Waiting for scale");
+    setWeightTestFB(1);
+  };
+
+  const openCurtain = () => {
+    if(curtainStatus == 0) {
+      console.log("Opening curtain");
+      setCurtainFB(1);
+    } else {
+      Alert.alert('Curtain already opened');
+    }
+  }
 
   const playPause = () => {
     if (audio.isPlaying()) {
@@ -102,7 +182,10 @@ function App() {
   };
 
   async function readTodoList() {
-    await Tts.speak(todoText, {
+
+    console.log('Reading to do list:');
+    console.log(`${weightText} ${todoText}`);
+    await Tts.speak(`${weightText} ${todoText}`, {
       androidParams: {
         KEY_PARAM_PAN: -1,
         KEY_PARAM_VOLUME: 0.5,
@@ -151,6 +234,10 @@ function App() {
           console.log(`Alarm playing: ${timeoutMS}`);
           playPause();
           setShowAlarm('No alarm set yet');
+          setScaleResultFB(0);
+          setWeightTestFB(0);
+          console.log("Waiting for scale");
+          setWeightTestFB(1);
         }, timeoutMS),
       );
     } else {
@@ -162,6 +249,10 @@ function App() {
           console.log(`Alarm playing: ${timeoutMS}`);
           playPause();
           setShowAlarm('No alarm set yet');
+          setScaleResultFB(0);
+          setWeightTestFB(0);
+          console.log("Waiting for scale");
+          setWeightTestFB(1);
         }, timeoutMS),
       );
     }
@@ -218,13 +309,13 @@ function App() {
         <TouchableOpacity
           style={styles.buttonBoxCurtain}
           activeOpacity={0.75}
-          onPress={readTodoList}>
+          onPress={openCurtain}>
           <Text style={styles.itemtext}>Open Curtain</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.buttonBoxWeight}
           activeOpacity={0.75}
-          onPress={readTodoList}>
+          onPress={checkWeight}>
           <Text style={styles.itemtext}>Check Weight</Text>
         </TouchableOpacity>
       </View>
